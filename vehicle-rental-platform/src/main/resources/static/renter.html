@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My bookings — ROADSHARE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav-mount"></div>
+
+  <div class="container" style="padding-top:32px; padding-bottom:60px;">
+    <h1>My bookings</h1>
+    <div id="guard-alert"></div>
+    <div id="bookings-list"></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    renderNav();
+
+    if (!isLoggedIn() || !hasRole('RENTER')) {
+      document.getElementById('guard-alert').innerHTML =
+        '<div class="alert alert-error">You need a renter account to view this page. <a href="/login.html" style="color:var(--rust); font-weight:600;">Log in</a> as a renter.</div>';
+    } else {
+      loadBookings();
+    }
+
+    function statusBadge(s) { return `<span class="badge badge-${s.toLowerCase()}">${s}</span>`; }
+
+    async function loadBookings() {
+      const mount = document.getElementById('bookings-list');
+      try {
+        const bookings = await api('/bookings/mine', { auth: true });
+        if (bookings.length === 0) {
+          mount.innerHTML = '<div class="empty-state">You have not booked any vehicles yet. <a href="/index.html" style="color:var(--amber-dim); font-weight:600;">Browse vehicles</a> to get started.</div>';
+          return;
+        }
+        mount.innerHTML = bookings.map(b => {
+          const canCancel = (b.status === 'PENDING' || b.status === 'CONFIRMED');
+          return `
+            <div class="row-card">
+              <div class="row-main">
+                <strong>${escapeHtml(b.vehicleMake)} ${escapeHtml(b.vehicleModel)} (${escapeHtml(b.vehicleLicensePlate)})</strong>
+                <span class="card-meta">Owner: ${escapeHtml(b.ownerName)} &middot; ${b.startDate} &rarr; ${b.endDate} &middot; ${formatMoney(b.totalPrice)}</span>
+              </div>
+              <div class="row-actions">
+                ${statusBadge(b.status)}
+                ${canCancel ? `<button class="btn btn-outline btn-sm" data-cancel="${b.id}">Cancel</button>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        mount.querySelectorAll('[data-cancel]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            try {
+              await api(`/bookings/${btn.dataset.cancel}/cancel`, { method: 'PATCH', auth: true });
+              loadBookings();
+            } catch (err) {
+              showAlert('guard-alert', err.message);
+            }
+          });
+        });
+      } catch (err) {
+        showAlert('guard-alert', err.message);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign up — ROADSHARE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav-mount"></div>
+
+  <div class="form-card">
+    <h2>Create your account</h2>
+    <p>Already have one? <a href="/login.html" style="color:var(--amber-dim); font-weight:600;">Log in</a></p>
+    <div id="alert-mount"></div>
+    <form id="register-form">
+      <div class="field">
+        <label for="fullName">Full name</label>
+        <input id="fullName" type="text" required>
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" minlength="6" required>
+        <div class="helper">At least 6 characters.</div>
+      </div>
+      <div class="field">
+        <label>I want to</label>
+        <div style="display:flex; gap:16px; margin-top:6px; font-size:0.9rem;">
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400;">
+            <input type="checkbox" id="role-owner" checked style="width:auto;"> List my vehicles (Owner)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400;">
+            <input type="checkbox" id="role-renter" checked style="width:auto;"> Rent vehicles (Renter)
+          </label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">Sign up</button>
+    </form>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    renderNav();
+
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearAlert('alert-mount');
+
+      const fullName = document.getElementById('fullName').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const roles = [];
+      if (document.getElementById('role-owner').checked) roles.push('OWNER');
+      if (document.getElementById('role-renter').checked) roles.push('RENTER');
+
+      if (roles.length === 0) {
+        showAlert('alert-mount', 'Please select at least one role.');
+        return;
+      }
+
+      try {
+        const res = await api('/auth/register', { method: 'POST', body: { fullName, email, password, roles } });
+        saveSession(res);
+        window.location.href = '/index.html';
+      } catch (err) {
+        showAlert('alert-mount', err.message);
+      }
+    });
+  </script>
+</body>
+</html>

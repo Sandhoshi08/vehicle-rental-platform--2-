@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Owner dashboard — ROADSHARE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav-mount"></div>
+
+  <div class="container" style="padding-top:32px; padding-bottom:60px;">
+    <h1>Owner dashboard</h1>
+    <div id="guard-alert"></div>
+
+    <div id="dashboard" style="display:none;">
+      <div class="stat-grid" id="earnings-stats"></div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="vehicles">My vehicles</div>
+        <div class="tab" data-tab="bookings">Booking requests</div>
+        <div class="tab" data-tab="add">Add a vehicle</div>
+      </div>
+
+      <div id="tab-vehicles" class="tab-panel">
+        <div id="vehicles-list"></div>
+      </div>
+
+      <div id="tab-bookings" class="tab-panel" style="display:none;">
+        <div id="bookings-list"></div>
+      </div>
+
+      <div id="tab-add" class="tab-panel" style="display:none;">
+        <div class="form-card" style="margin-left:0;">
+          <h3>List a new vehicle</h3>
+          <div id="add-alert"></div>
+          <form id="add-form">
+            <div class="field-row">
+              <div class="field"><label>Make</label><input id="v-make" required></div>
+              <div class="field"><label>Model</label><input id="v-model" required></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Year</label><input id="v-year" type="number" min="1980" max="2100" required></div>
+              <div class="field"><label>License plate</label><input id="v-plate" required></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Location</label><input id="v-location"></div>
+              <div class="field"><label>Daily rate (&#8377;)</label><input id="v-rate" type="number" min="1" step="1" required></div>
+            </div>
+            <div class="field"><label>Description</label><textarea id="v-desc"></textarea></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">List vehicle</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    renderNav();
+
+    if (!isLoggedIn() || !hasRole('OWNER')) {
+      document.getElementById('guard-alert').innerHTML =
+        '<div class="alert alert-error">You need an owner account to view this page. <a href="/login.html" style="color:var(--rust); font-weight:600;">Log in</a> as an owner.</div>';
+    } else {
+      document.getElementById('dashboard').style.display = 'block';
+      init();
+    }
+
+    function statusBadge(s) { return `<span class="badge badge-${s.toLowerCase()}">${s}</span>`; }
+
+    async function init() {
+      await Promise.all([loadEarnings(), loadVehicles(), loadBookings()]);
+      wireTabs();
+      wireAddForm();
+    }
+
+    function wireTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+          tab.classList.add('active');
+          document.getElementById('tab-' + tab.dataset.tab).style.display = 'block';
+        });
+      });
+    }
+
+    async function loadEarnings() {
+      try {
+        const e = await api('/earnings/mine', { auth: true });
+        const perVehicle = e.byVehicle.map(v =>
+          `<div class="stat-card"><div class="stat-label">${escapeHtml(v.vehicleName)}</div><div class="stat-value" style="font-size:1.2rem;">${formatMoney(v.totalEarnings)}</div></div>`
+        ).join('');
+        document.getElementById('earnings-stats').innerHTML = `
+          <div class="stat-card"><div class="stat-label">Total earnings</div><div class="stat-value">${formatMoney(e.totalEarnings)}</div></div>
+          <div class="stat-card"><div class="stat-label">Revenue-generating bookings</div><div class="stat-value">${e.totalBookings}</div></div>
+          ${perVehicle}
+        `;
+      } catch (err) {
+        showAlert('guard-alert', err.message);
+      }
+    }
+
+    async function loadVehicles() {
+      const mount = document.getElementById('vehicles-list');
+      try {
+        const vehicles = await api('/vehicles/mine', { auth: true });
+        if (vehicles.length === 0) {
+          mount.innerHTML = '<div class="empty-state">You haven\'t listed any vehicles yet. Use the "Add a vehicle" tab to get started.</div>';
+          return;
+        }
+        mount.innerHTML = vehicles.map(v => `
+          <div class="row-card">
+            <div class="row-main">
+              <strong>${escapeHtml(v.make)} ${escapeHtml(v.model)} &middot; ${v.year}</strong>
+              <span class="card-meta">${escapeHtml(v.licensePlate)} &middot; ${escapeHtml(v.location || '')} &middot; ${formatMoney(v.dailyRate)}/day</span>
+            </div>
+            <div class="row-actions">
+              ${statusBadge(v.status)}
+              ${v.status === 'ACTIVE'
+                ? `<button class="btn btn-outline btn-sm" data-toggle="${v.id}" data-status="INACTIVE">Mark unavailable</button>`
+                : `<button class="btn btn-success btn-sm" data-toggle="${v.id}" data-status="ACTIVE">Relist</button>`}
+            </div>
+          </div>
+        `).join('');
+
+        mount.querySelectorAll('[data-toggle]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            try {
+              await api(`/vehicles/${btn.dataset.toggle}/status`, {
+                method: 'PATCH', auth: true, body: { status: btn.dataset.status },
+              });
+              loadVehicles();
+            } catch (err) {
+              showAlert('guard-alert', err.message);
+            }
+          });
+        });
+      } catch (err) {
+        showAlert('guard-alert', err.message);
+      }
+    }
+
+    async function loadBookings() {
+      const mount = document.getElementById('bookings-list');
+      try {
+        const bookings = await api('/bookings/incoming', { auth: true });
+        if (bookings.length === 0) {
+          mount.innerHTML = '<div class="empty-state">No booking requests yet.</div>';
+          return;
+        }
+        mount.innerHTML = bookings.map(b => {
+          let actions = '';
+          if (b.status === 'PENDING') {
+            actions = `
+              <button class="btn btn-success btn-sm" data-confirm="${b.id}">Confirm</button>
+              <button class="btn btn-danger btn-sm" data-reject="${b.id}">Reject</button>
+            `;
+          } else if (b.status === 'CONFIRMED') {
+            actions = `
+              <button class="btn btn-outline btn-sm" data-cancel="${b.id}">Cancel</button>
+              <button class="btn btn-dark btn-sm" data-complete="${b.id}">Mark completed</button>
+            `;
+          }
+          return `
+            <div class="row-card">
+              <div class="row-main">
+                <strong>${escapeHtml(b.vehicleMake)} ${escapeHtml(b.vehicleModel)} (${escapeHtml(b.vehicleLicensePlate)})</strong>
+                <span class="card-meta">Renter: ${escapeHtml(b.renterName)} &middot; ${b.startDate} &rarr; ${b.endDate} &middot; ${formatMoney(b.totalPrice)}</span>
+              </div>
+              <div class="row-actions">${statusBadge(b.status)} ${actions}</div>
+            </div>
+          `;
+        }).join('');
+
+        wireBookingActions(mount, loadBookings);
+      } catch (err) {
+        showAlert('guard-alert', err.message);
+      }
+    }
+
+    function wireBookingActions(mount, reload) {
+      const map = { confirm: 'confirm', reject: 'reject', cancel: 'cancel', complete: 'complete' };
+      Object.keys(map).forEach(key => {
+        mount.querySelectorAll(`[data-${key}]`).forEach(btn => {
+          btn.addEventListener('click', async () => {
+            try {
+              await api(`/bookings/${btn.dataset[key]}/${map[key]}`, { method: 'PATCH', auth: true });
+              reload();
+              loadEarnings();
+            } catch (err) {
+              showAlert('guard-alert', err.message);
+            }
+          });
+        });
+      });
+    }
+
+    function wireAddForm() {
+      document.getElementById('add-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearAlert('add-alert');
+        try {
+          await api('/vehicles', {
+            method: 'POST',
+            auth: true,
+            body: {
+              make: document.getElementById('v-make').value.trim(),
+              model: document.getElementById('v-model').value.trim(),
+              year: Number(document.getElementById('v-year').value),
+              licensePlate: document.getElementById('v-plate').value.trim(),
+              location: document.getElementById('v-location').value.trim(),
+              dailyRate: Number(document.getElementById('v-rate').value),
+              description: document.getElementById('v-desc').value.trim(),
+            },
+          });
+          document.getElementById('add-form').reset();
+          showAlert('add-alert', 'Vehicle listed successfully.', 'success');
+          loadVehicles();
+        } catch (err) {
+          showAlert('add-alert', err.message);
+        }
+      });
+    }
+  </script>
+</body>
+</html>

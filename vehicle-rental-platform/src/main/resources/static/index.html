@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROADSHARE — Rent vehicles from people nearby</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav-mount"></div>
+
+  <section class="hero">
+    <div class="container">
+      <div class="hero-eyebrow">Peer-to-peer vehicle rental</div>
+      <h1>Borrow the ride. Skip the dealership.</h1>
+      <p class="lead">Rent cars, SUVs and bikes directly from owners nearby, by the day, for exactly the dates you need.</p>
+
+      <form class="search-bar" id="search-form">
+        <div>
+          <label for="f-make">Make</label>
+          <input id="f-make" type="text" placeholder="e.g. Toyota">
+        </div>
+        <div>
+          <label for="f-location">Location</label>
+          <input id="f-location" type="text" placeholder="e.g. Chennai">
+        </div>
+        <div>
+          <label for="f-start">From</label>
+          <input id="f-start" type="date">
+        </div>
+        <div>
+          <label for="f-end">To</label>
+          <input id="f-end" type="date">
+        </div>
+        <div style="display:flex; align-items:flex-end;">
+          <button type="submit" class="btn btn-primary" style="width:100%;">Search</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <h2 id="results-heading">Available vehicles</h2>
+      </div>
+      <div id="alert-mount"></div>
+      <div id="vehicle-grid" class="grid"></div>
+    </div>
+  </section>
+
+  <footer>Built as a demo project &mdash; ROADSHARE peer-to-peer vehicle rental platform.</footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    renderNav('browse');
+
+    const grid = document.getElementById('vehicle-grid');
+    const form = document.getElementById('search-form');
+    const heading = document.getElementById('results-heading');
+
+    function vehicleCard(v) {
+      const initials = (v.make[0] || '') + (v.model[0] || '');
+      return `
+        <a class="card" href="/vehicle.html?id=${v.id}">
+          <div class="card-media">${escapeHtml(initials.toUpperCase())}</div>
+          <div class="card-body">
+            <div class="card-title">${escapeHtml(v.make)} ${escapeHtml(v.model)} &middot; ${v.year}</div>
+            <div class="card-meta">${escapeHtml(v.location || 'Location not set')}</div>
+            <div class="card-meta">Hosted by ${escapeHtml(v.ownerName)}</div>
+            <div class="card-foot">
+              <span class="plate plate-amber">${formatMoney(v.dailyRate)}/day</span>
+              <span class="badge badge-${v.status.toLowerCase()}">${v.status}</span>
+            </div>
+          </div>
+        </a>
+      `;
+    }
+
+    async function loadVehicles(params) {
+      grid.innerHTML = '<p>Loading vehicles&hellip;</p>';
+      try {
+        const query = new URLSearchParams(params).toString();
+        const vehicles = await api('/vehicles' + (query ? '?' + query : ''));
+        if (vehicles.length === 0) {
+          grid.innerHTML = '<div class="empty-state">No vehicles match your search. Try different dates or a broader location.</div>';
+          return;
+        }
+        grid.innerHTML = vehicles.map(vehicleCard).join('');
+      } catch (err) {
+        showAlert('alert-mount', err.message);
+      }
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      clearAlert('alert-mount');
+      const params = {};
+      const make = document.getElementById('f-make').value.trim();
+      const location = document.getElementById('f-location').value.trim();
+      const start = document.getElementById('f-start').value;
+      const end = document.getElementById('f-end').value;
+      if (make) params.make = make;
+      if (location) params.location = location;
+      if (start) params.startDate = start;
+      if (end) params.endDate = end;
+
+      if ((start && !end) || (!start && end)) {
+        showAlert('alert-mount', 'Please choose both a start and end date, or leave both blank.');
+        return;
+      }
+      heading.textContent = 'Search results';
+      loadVehicles(params);
+    });
+
+    loadVehicles({});
+  </script>
+</body>
+</html>

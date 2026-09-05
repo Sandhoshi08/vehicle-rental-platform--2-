@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vehicle details — ROADSHARE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="nav-mount"></div>
+
+  <div class="container" style="padding-top:36px; padding-bottom:60px;">
+    <div id="alert-mount"></div>
+    <div id="content">Loading&hellip;</div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    renderNav();
+
+    const params = new URLSearchParams(window.location.search);
+    const vehicleId = params.get('id');
+    const content = document.getElementById('content');
+
+    async function load() {
+      if (!vehicleId) {
+        content.innerHTML = '<div class="empty-state">No vehicle specified.</div>';
+        return;
+      }
+      try {
+        const [vehicle, unavailable] = await Promise.all([
+          api('/vehicles/' + vehicleId),
+          api('/vehicles/' + vehicleId + '/unavailable-dates'),
+        ]);
+        render(vehicle, unavailable);
+      } catch (err) {
+        content.innerHTML = `<div class="empty-state">Could not load this vehicle.</div>`;
+        showAlert('alert-mount', err.message);
+      }
+    }
+
+    function render(v, unavailable) {
+      const rangesHtml = unavailable.length
+        ? unavailable.map(r => `<li>${r.startDate} &rarr; ${r.endDate}</li>`).join('')
+        : '<li>No upcoming bookings &mdash; fully open.</li>';
+
+      const canBook = isLoggedIn() && hasRole('RENTER') && v.status === 'ACTIVE';
+      let bookingSection;
+      if (v.status !== 'ACTIVE') {
+        bookingSection = '<div class="alert alert-error">This vehicle is currently not available for booking.</div>';
+      } else if (!isLoggedIn()) {
+        bookingSection = `<p><a href="/login.html" style="color:var(--amber-dim); font-weight:600;">Log in</a> as a renter to book this vehicle.</p>`;
+      } else if (!hasRole('RENTER')) {
+        bookingSection = '<p>Your account does not have renter access.</p>';
+      } else {
+        bookingSection = `
+          <form id="booking-form">
+            <div class="field-row">
+              <div class="field">
+                <label for="b-start">Start date</label>
+                <input id="b-start" type="date" required>
+              </div>
+              <div class="field">
+                <label for="b-end">End date</label>
+                <input id="b-end" type="date" required>
+              </div>
+            </div>
+            <div id="price-preview" class="helper" style="margin-bottom:12px;"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">Request to book</button>
+          </form>
+        `;
+      }
+
+      content.innerHTML = `
+        <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:32px;">
+          <div>
+            <div class="card-media" style="height:220px; border-radius:var(--radius); font-size:2rem;">
+              ${escapeHtml((v.make[0] || '') + (v.model[0] || ''))}
+            </div>
+            <h1 style="margin-top:20px;">${escapeHtml(v.make)} ${escapeHtml(v.model)} &middot; ${v.year}</h1>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+              <span class="badge badge-${v.status.toLowerCase()}">${v.status}</span>
+              <span class="plate">${escapeHtml(v.licensePlate)}</span>
+            </div>
+            <p>${escapeHtml(v.description || 'No description provided.')}</p>
+            <p class="card-meta">Location: ${escapeHtml(v.location || 'Not specified')}</p>
+            <p class="card-meta">Hosted by ${escapeHtml(v.ownerName)}</p>
+
+            <h3 style="margin-top:28px;">Upcoming unavailable dates</h3>
+            <ul style="color:var(--ink-soft); font-size:0.9rem;">${rangesHtml}</ul>
+          </div>
+
+          <div>
+            <div class="form-card" style="margin:0;">
+              <div class="plate plate-amber" style="font-size:1.1rem; margin-bottom:14px;">${formatMoney(v.dailyRate)} / day</div>
+              ${bookingSection}
+              <div id="booking-alert"></div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const form = document.getElementById('booking-form');
+      if (form) {
+        const startInput = document.getElementById('b-start');
+        const endInput = document.getElementById('b-end');
+        const preview = document.getElementById('price-preview');
+
+        function updatePreview() {
+          const s = startInput.value, e = endInput.value;
+          if (s && e) {
+            const days = Math.round((new Date(e) - new Date(s)) / 86400000);
+            if (days > 0) {
+              preview.textContent = `${days} day${days > 1 ? 's' : ''} \u00d7 ${formatMoney(v.dailyRate)} = ${formatMoney(days * v.dailyRate)}`;
+            } else {
+              preview.textContent = 'End date must be after start date.';
+            }
+          } else {
+            preview.textContent = '';
+          }
+        }
+        startInput.addEventListener('change', updatePreview);
+        endInput.addEventListener('change', updatePreview);
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          showAlert('booking-alert', '', 'success');
+          document.getElementById('booking-alert').innerHTML = '';
+          try {
+            await api('/bookings', {
+              method: 'POST',
+              auth: true,
+              body: { vehicleId: Number(vehicleId), startDate: startInput.value, endDate: endInput.value },
+            });
+            document.getElementById('booking-alert').innerHTML =
+              '<div class="alert alert-success">Booking request sent! Track its status from "My bookings".</div>';
+            form.reset();
+            preview.textContent = '';
+            load(); // refresh unavailable dates
+          } catch (err) {
+            document.getElementById('booking-alert').innerHTML =
+              `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+          }
+        });
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
